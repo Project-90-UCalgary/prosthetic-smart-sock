@@ -18,6 +18,24 @@ This folder holds **work-in-progress** versions of the GUI and ESP32 firmware. T
 
 Add a new row when you land a batch of weekday changes in this folder.
 
-| Week of (Mon) | Pushed / noted (date) | Highlights |
-|---------------|------------------------|------------|
-| 2026-05-04 | 2026-05-04 | 5 FSR channels; WiFi/JSON `c1`–`c5` + matching firmware; display 0–100; `turbo` colormap + linear heat scaling; 30 s history with **wall-clock** time axis; non-overlapping controls + more random-mode diversity; `in-progress/` split from mainline on GitHub. |
+<!-- HTML table uses full README width so the Highlights column wraps less narrowly than GFM pipe tables. -->
+<table width="100%">
+<thead>
+<tr>
+<th align="left">Week of (Mon)</th>
+<th align="left">Pushed / noted (date)</th>
+<th align="left">Highlights</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td valign="top">2026-05-04</td>
+<td valign="top">2026-05-04</td>
+<td valign="top">
+
+5 FSR channels; WiFi/JSON `c1`–`c5` + matching firmware; display 0–100; `turbo` colormap + linear heat scaling; 30 s history with **wall-clock** time axis; non-overlapping controls + more random-mode diversity; `in-progress/` split from mainline on GitHub.
+
+</td>
+</tr>
+</tbody>
+</table>
