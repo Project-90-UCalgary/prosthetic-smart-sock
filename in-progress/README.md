@@ -22,8 +22,6 @@ When you add a week: copy the `### …` block below, change the dates, and edit 
 
 ### Mon `2026-05-04`
 
-- **Noted:** `2026-05-04`
-
 **Highlights**
 
 5 FSR channels; WiFi/JSON `c1`–`c5` + matching firmware; display 0–100; `turbo` colormap + linear heat scaling; 30 s history with **wall-clock** time axis; non-overlapping controls + more random-mode diversity; `in-progress/` split from mainline on GitHub.
