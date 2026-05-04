@@ -1,35 +1,41 @@
 function prosthetic_paraboloid_gui
 % prosthetic_paraboloid_gui.m
-% 3-channel prosthetic visualization (mux c0–c2 only):
+% Prosthetic visualization (NCH mux channels):
 % - Limb surface: paraboloid cup + smooth cone + vertical cylinder
 % - Live bars + rolling history
-% - 3D heatmap with 3 sensor points (mux ch 0–2)
+% - 3D heatmap with sensor points on the limb
 % - GUI sliders + mode toggle (Random / Sliders / Serial / WiFi)
-% - Serial: 4_16_mux sketch — sprintf("%%6d") per index; display mux ch 0–2 only
-%   Hardware: higher pressure -> lower ADC; SERIAL_INVERT_ADC maps to "higher = more pressure"
-% - WiFi endpoint /c0-c3 (JSON), display c0–c2
+% - Serial: 16_6_mux sketch — sprintf("%%6d") per index; first NCH mux fields M0–M(N-1)
+%   Hardware: higher pressure -> lower ADC; SERIAL_INVERT_ADC maps serial stream only
+% - WiFi JSON /c1-cN: sensors S1–SN = mux c1–cN keys; WIFI_INVERT_ADC=false -> higher ADC -> higher bar
 % - Rotate limb with left-click dragging (rotate3d)
 
 clearvars; close all; clc;
 
 %% ================= SETTINGS =================
-NCH = 3;
-LABELS = ["FSR1","FSR2","FSR3"];
-LABELS_SERIAL = ["M0","M1","M2"];
-LABELS_3D = ["M0","M1","M2"]; % mux c0–c2
+NCH = 5; % first five mux channels (JSON / WiFi c1–c5)
+LABELS = compose("FSR%d", 1:NCH);
+LABELS_SERIAL = compose("M%d", 0:NCH-1);
+LABELS_WIFI = compose("S%d", 1:NCH); % WiFi: map to JSON c1..cN (mux ch 1–N)
+LABELS_3D = compose("S%d", 1:NCH);
 
 SAMPLE_HZ  = 50;
 DT         = 1 / SAMPLE_HZ;
-WINDOW_SEC = 10;
-maxlen     = round(SAMPLE_HZ * WINDOW_SEC);
+WINDOW_SEC = 30;
+% Ring buffer length: ~(WINDOW_SEC * SAMPLE_HZ) + 1 samples so oldest vs newest spans WINDOW_SEC at nominal DT.
+maxlen = round(WINDOW_SEC * SAMPLE_HZ) + 1;
 
 YMIN = 0;
-YMAX = 50;             % display 0..50 (higher = more pressure after optional invert)
+YMAX = 100;            % display 0..100 (higher = more pressure after optional invert)
 ADC_IN_MAX_SERIAL = 1023;  % legacy Arduino serial stream scale
 ADC_IN_MAX_WIFI   = 4095;  % ESP32 ADC scale over WiFi endpoint
-% Circuit wiring: more mechanical pressure -> lower ADC (typical FSR / divider setup).
-% SERIAL_INVERT_ADC maps ADC so the GUI still shows higher values for more pressure.
+% Serial stream: more mechanical pressure -> lower ADC (typical FSR). Invert so bars rise with pressure.
 SERIAL_INVERT_ADC = true;
+% WiFi JSON: direct mapping — higher ADC (e.g. c1) -> higher GUI value (set true to mirror serial invert).
+WIFI_INVERT_ADC = false;
+% Extra gain on WiFi-only scaling so low ADC (~few hundred counts) uses more of 0..YMAX.
+% (Tuned with YMAX=100; increase if bars look too small.)
+WIFI_DISPLAY_GAIN = 5;
 
 ALPHA = 0.15;          % EMA smoothing for bars/history only (heatmap uses raw)
 sigma = 0.32;          % heat spread on limb (larger Z span than paraboloid-only)
@@ -47,13 +53,14 @@ Z_top  = H + h_cone + H_cyl;
 t_sim = 0;
 ema = zeros(NCH,1);
 buf = zeros(NCH, maxlen);
-x_hist = linspace(-WINDOW_SEC, 0, maxlen);
+% Wall-clock time (toc from histWallTic) for each column — x-axis matches real duration (GUI often << SAMPLE_HZ).
+t_hist_cols = nan(1, maxlen);
 
 % Mode: 1=Random, 2=Sliders, 3=Serial, 4=WiFi
 mode = 1;
 
 % Slider values storage (0..YMAX)
-sliderVals = 25 * ones(NCH,1);
+sliderVals = 50 * ones(NCH,1);
 
 % Serial: 16 × sprintf("%6d", A0) -> 96 chars per line (no A1 field)
 serialHandle = [];           % serialport object, empty when closed
@@ -62,8 +69,8 @@ serialLineAccum = char([]);  % bytes until LF (avoids readline timeout warnings)
 BYTES_PER_CH = 6;           % fixed width per mux channel (%6d)
 N_MUX_CH = 16;
 
-% WiFi source (ESP32 station first, SoftAP fallback)
-WIFI_URLS = ["http://172.20.10.2/c0-c3", "http://192.168.4.1/c0-c3"];
+% WiFi source (ESP32 station first, SoftAP fallback) — JSON must include c1..cN
+WIFI_URLS = ["http://172.20.10.2/c1-c5", "http://192.168.4.1/c1-c5"];
 WIFI_POLL_HZ = 8;               % decouple HTTP polling from GUI timer
 WIFI_TIMEOUT_SEC = 0.35;        % short timeout prevents GUI stalls
 lastWifiRaw = zeros(NCH,1); % hold last good frame if a read fails
@@ -83,16 +90,16 @@ X = R_of_Z .* cos(TH);
 Y = R_of_Z .* sin(TH);
 Z = ZZ;
 
-% Three mux sites (c0–c2) on the limb — same Z near the tip (low on cup), spread by angle
-z_tip = 0.30 * H; % paraboloid band near apex; all three share this height
-s_th = zeros(NCH, 1);
-s_th(:) = (0:2).' * (2*pi/3) + 0.12;
-z_s = zeros(NCH, 1);
-z_s(:) = z_tip;
-r_s = limbRvec(z_s, H, shapeK, Rmax, R_cyl, h_cone);
-s_x = r_s .* cos(s_th);
-s_y = r_s .* sin(s_th);
-s_z = z_s;
+% Mux sites on the limb — same Z near the tip (low on cup), spread by angle
+z_tip = 0.30 * H; % paraboloid band near apex
+fsr_th = zeros(NCH, 1);
+fsr_th(:) = (0:NCH-1).' * (2*pi/NCH) + 0.12;
+z_fsr = zeros(NCH, 1);
+z_fsr(:) = z_tip;
+r_fsr = limbRvec(z_fsr, H, shapeK, Rmax, R_cyl, h_cone);
+fsr_x = r_fsr .* cos(fsr_th);
+fsr_y = r_fsr .* sin(fsr_th);
+fsr_z = z_fsr;
 
 %% ================= FIGURE + LAYOUT =================
 fig = figure('Color','w', 'Name','Paraboloid Prosthetic Telemetry', ...
@@ -110,7 +117,7 @@ b = bar(axBar, 1:NCH, zeros(1,NCH));
 ylim(axBar, [YMIN YMAX]);
 xticks(axBar, 1:NCH);
 xticklabels(axBar, LABELS);
-ylabel(axBar, 'Level (0–50)');
+ylabel(axBar, 'Level (0–100)');
 title(axBar, 'Live Values');
 grid(axBar, 'on');
 
@@ -119,13 +126,14 @@ axHist = nexttile(t, 3);
 hold(axHist,'on');
 hLine = gobjects(NCH,1);
 for i=1:NCH
-    hLine(i) = plot(axHist, x_hist, buf(i,:), 'LineWidth', 1.2);
+    hLine(i) = plot(axHist, linspace(-WINDOW_SEC, 0, maxlen), buf(i,:), 'LineWidth', 1.2);
 end
 hold(axHist,'off');
-xlim(axHist, [-WINDOW_SEC 0]);
+axHist.XLimMode = 'manual';
+xlim(axHist, [-WINDOW_SEC 0]); % fixed horizontal span [−WINDOW_SEC, 0]
 ylim(axHist, [YMIN YMAX]);
-xlabel(axHist, 'Time (s) [0 = now]');
-ylabel(axHist, 'Level (0–50)');
+xlabel(axHist, 'Time (s) [0 = now, wall clock]');
+ylabel(axHist, 'Level (0–100)');
 title(axHist, sprintf('History (last %ds)', WINDOW_SEC));
 legend(axHist, LABELS, 'Location','northwest');
 grid(axHist, 'on');
@@ -140,14 +148,20 @@ title(ax3D,'3D Heatmap (limb: cup + cone + stem)');
 view(ax3D, 40, 25);
 camlight(ax3D, 'headlight');
 lighting(ax3D, 'gouraud');
-colormap(ax3D, hot);
+% turbo spreads mid–high values better than hot; parula if turbo unavailable
+try
+    colormap(ax3D, turbo(256));
+catch
+    colormap(ax3D, parula(256));
+end
 cb = colorbar(ax3D);
-cb.Label.String = 'Intensity (0..100)';
+cb.Label.String = 'Intensity (0–100)';
 
 hold(ax3D,'on');
-hPts = scatter3(ax3D, s_x, s_y, s_z, 110, zeros(NCH,1), 'filled', 'MarkerEdgeColor','k');
+ptSz = max(45, 130 - 7*NCH);
+hPts = scatter3(ax3D, fsr_x, fsr_y, fsr_z, ptSz, zeros(NCH,1), 'filled', 'MarkerEdgeColor','k');
 for i=1:NCH
-    text(ax3D, s_x(i)*1.06, s_y(i)*1.06, s_z(i), LABELS_3D(i), ...
+    text(ax3D, fsr_x(i)*1.06, fsr_y(i)*1.06, fsr_z(i), LABELS_3D(i), ...
         'FontWeight','bold','Color','w');
 end
 hold(ax3D,'off');
@@ -165,7 +179,7 @@ uicontrol(ctrl, 'Style','text', 'Units','normalized', ...
 
 modePopup = uicontrol(ctrl, 'Style','popupmenu', 'Units','normalized', ...
     'Position',[0.08 0.89 0.84 0.045], ...
-    'String', {'Random', 'Sliders', 'Serial (c0–c2)', 'WiFi (/c0-c3)'}, ...
+    'String', {'Random', 'Sliders', 'Serial (M0–M4)', 'WiFi (S1–S5 = c1–c5)'}, ...
     'Value', 1, ...
     'Callback', @onModeChanged);
 
@@ -200,33 +214,45 @@ alphaReadout = uicontrol(ctrl, 'Style','text', 'Units','normalized', ...
     'String', sprintf('α = %.2f', ALPHA), ...
     'HorizontalAlignment','left');
 
-% Sliders for each channel
+% Sliders for each channel (stack below alpha block; row pitch avoids overlap)
 sliderHandles = gobjects(NCH,1);
 valueTexts    = gobjects(NCH,1);
-
-y0 = 0.64;
-dy = 0.105;
+labelH = 0.032;
+sldrH  = 0.026;
+gapLabSldr = 0.006;
+rowPitch = labelH + gapLabSldr + sldrH + 0.008; % vertical advance per FSR row
+% Alpha readout ends ~0.725; start FSR labels below that with margin
+yLabel1 = 0.56;
+tipBottom = 0.05;
+tipH = 0.055;
+% If too many channels, compress row pitch slightly but keep >= rowPitch min
+minPitch = labelH + gapLabSldr + sldrH + 0.004;
+avail = yLabel1 - (tipBottom + tipH + 0.02); % space above tip
+if (NCH-1) * rowPitch > avail
+    rowPitch = max(minPitch, avail / max(NCH, 1));
+end
 
 for i = 1:NCH
-    y = y0 - (i-1)*dy;
+    y = yLabel1 - (i-1)*rowPitch;
+    ySl = y - gapLabSldr - sldrH;
 
     uicontrol(ctrl, 'Style','text', 'Units','normalized', ...
-        'Position',[0.08 y 0.45 0.035], ...
+        'Position',[0.08 y 0.45 labelH], ...
         'String', LABELS(i), 'HorizontalAlignment','left');
 
     sliderHandles(i) = uicontrol(ctrl, 'Style','slider', 'Units','normalized', ...
-        'Position',[0.08 y-0.035 0.84 0.03], ...
+        'Position',[0.08 ySl 0.84 sldrH], ...
         'Min', YMIN, 'Max', YMAX, 'Value', sliderVals(i), ...
         'Callback', @(src,evt)onSliderChanged(i, src));
 
     valueTexts(i) = uicontrol(ctrl, 'Style','text', 'Units','normalized', ...
-        'Position',[0.55 y 0.37 0.035], ...
+        'Position',[0.55 y 0.37 labelH], ...
         'String', sprintf('%d', round(sliderVals(i))), ...
         'HorizontalAlignment','right');
 end
 
 uicontrol(ctrl, 'Style','text', 'Units','normalized', ...
-    'Position',[0.08 0.06 0.84 0.06], ...
+    'Position',[0.08 tipBottom 0.84 tipH], ...
     'String', "Tip: Drag the 3D plot with LEFT mouse to rotate.", ...
     'HorizontalAlignment','left');
 
@@ -239,6 +265,7 @@ tmr = timer( ...
 % Make sure timer stops when figure closes
 fig.CloseRequestFcn = @onClose;
 
+histWallTic = tic; % same origin as t_hist_cols (wall time for history axis)
 start(tmr);
 
 %% ================= CALLBACKS =================
@@ -268,9 +295,12 @@ start(tmr);
         elseif mode ~= 3 && prev == 3
             closeSerialPort();
         end
-        if mode == 3 || mode == 4
+        if mode == 3
             xticklabels(axBar, LABELS_SERIAL);
             legend(axHist, LABELS_SERIAL, 'Location','northwest');
+        elseif mode == 4
+            xticklabels(axBar, LABELS_WIFI);
+            legend(axHist, LABELS_WIFI, 'Location','northwest');
         else
             xticklabels(axBar, LABELS);
             legend(axHist, LABELS, 'Location','northwest');
@@ -301,7 +331,7 @@ start(tmr);
             elseif mode == 3
                 raw = readMux1Ch0to4(); % Serial: Arduino 2-mux line protocol
             else
-                raw = readWifiC0toC3(); % WiFi JSON endpoint (STA/AP auto-fallback)
+                raw = readWifiC1toCN(); % WiFi JSON c1–cN -> S1–SN
             end
 
             % ---- EMA smoothing (bars/history only; heatmap follows raw for instant release) ----
@@ -310,26 +340,32 @@ start(tmr);
             end
             v = ema;
 
-            % ---- Update rolling buffer ----
+            % ---- Update rolling buffer + wall times (WINDOW_SEC-wide window, fixed x-axis) ----
             buf(:,1:end-1) = buf(:,2:end);
             buf(:,end) = v;
+            t_now = toc(histWallTic);
+            t_hist_cols(1:end-1) = t_hist_cols(2:end);
+            t_hist_cols(end) = t_now;
+            valid = ~isnan(t_hist_cols);
+            x_rel = t_hist_cols(valid) - t_now; % seconds before “now” (matches real GUI rate)
 
             % ---- Update bars + history ----
             b.YData = buf(:,end)';  % bar wants row vector
 
             for k = 1:NCH
-                hLine(k).YData = buf(k,:);
+                hLine(k).XData = x_rel;
+                hLine(k).YData = buf(k, valid);
             end
 
-            % ---- Heat field: use raw ADC (not EMA); absolute scale (no per-frame min–max) ----
-            intensityHeat = 1000 * (raw - YMIN) / max(eps, (YMAX - YMIN));
+            % ---- Heat field: use raw ADC (not EMA); linear 0..100 (avoid 1000*gain saturation) ----
+            intensityHeat = 100 * (raw - YMIN) / max(eps, (YMAX - YMIN));
             intensityHeat = max(0, min(100, intensityHeat));
 
             heat = zeros(size(Z));
             for k = 1:NCH
-                dx = X - s_x(k);
-                dy_ = Y - s_y(k);
-                dz = Z - s_z(k);
+                dx = X - fsr_x(k);
+                dy_ = Y - fsr_y(k);
+                dz = Z - fsr_z(k);
                 d = sqrt(dx.^2 + dy_.^2 + dz.^2);
                 heat = heat + intensityHeat(k) .* exp(-(d.^2) / (2*sigma^2));
             end
@@ -337,7 +373,7 @@ start(tmr);
 
             hSurf.CData = heat;
             hPts.CData  = intensityHeat; % match instantaneous heat (same as surface drive)
-            set(ax3D, 'CLim', [0 100]); % fixed scale so cooling shows immediately
+            set(ax3D, 'CLim', [0 100]); % match displayed intensity 0–100
 
             t_sim = t_sim + DT;
             drawnow limitrate;
@@ -347,14 +383,24 @@ start(tmr);
     end
 
     function raw = makeRandomSignals(t)
-        % Smooth-ish values 0..YMAX
-        raw = zeros(NCH,1);
-
-        raw(1) = 29 + 16*sin(2*pi*0.12*t) + 3*sin(2*pi*0.03*t + 0.7);
-        raw(2) = 26 + 14*sin(2*pi*0.10*t + 1.2) + 2.5*sin(2*pi*0.025*t + 2.1);
-        raw(3) = 25 + 20*sin(2*pi*0.25*t);
-
-        raw = raw + randn(NCH,1) * 1;
+        % Smooth-ish values 0..YMAX — strong per-channel offsets, gains, and frequencies
+        ch = (1:NCH).';
+        meanOff = 18 * sin(0.85 * ch + 0.9);
+        amp1 = 22 + 18 * cos(0.52 * ch + 0.3);
+        amp2 = 10 + 10 * sin(0.41 * ch);
+        amp3 = 6 + 5 * cos(0.73 * ch);
+        f1 = 0.075 + 0.055 * (ch - 1) / max(NCH - 1, 1);
+        f2 = 0.048 + 0.028 * sin(0.6 * ch);
+        f3 = 0.112 + 0.02 * cos(0.45 * (ch - 2));
+        ph1 = ch .* (1.05 + 0.11 * ch);
+        ph2 = ch .* 0.67 + 2.4;
+        ph3 = ch .* 1.31 + 0.35;
+        raw = 50 + meanOff ...
+            + amp1 .* sin(2*pi*f1*t + ph1) ...
+            + amp2 .* sin(2*pi*f2*t + ph2) ...
+            + amp3 .* sin(2*pi*f3*t + ph3) ...
+            + 14 * sin(2*pi*0.029*t + 0.52 * ch);
+        raw = raw + randn(NCH,1) .* (2.2 + 1.8 * abs(cos(0.55 * ch)));
         raw = max(YMIN, min(YMAX, raw));
     end
 
@@ -421,7 +467,7 @@ start(tmr);
 
     function raw = readMux1Ch0to4()
         % Arduino loop: sprintf(padded,"%%6d", analogRead(A0)) for i=0..15 -> 96-char line + LF.
-        % GUI uses mux indices 0..2 only (fields 1–3 in line = c0–c2).
+        % GUI uses mux fields 1..NCH (indices 0..NCH-1 on wire = M0–M(N-1)).
         % Circuit: more pressure -> lower ADC; SERIAL_INVERT_ADC flips before scaling to YMAX.
         % Assemble lines with read(n,uint8) so partial chunks do not trigger readline timeouts.
         raw = lastSerialRaw;
@@ -482,14 +528,14 @@ start(tmr);
 
     end
 
-    function raw = readWifiC0toC3()
-        % Poll ESP32 AP endpoint JSON: {"c0":...,"c1":...,"c2":...,"c3":...}
-        % GUI still uses first 3 channels (c0..c2).
+    function raw = readWifiC1toCN()
+        % Poll ESP32 JSON /c1-cN: mux c1..cN -> GUI S1..SN. WIFI_INVERT_ADC=false => higher ADC -> higher bar.
         raw = lastWifiRaw;
         if toc(lastWifiPollTic) < (1 / WIFI_POLL_HZ)
             return;
         end
         lastWifiPollTic = tic;
+        reqFields = arrayfun(@(k) sprintf('c%d', k), 1:NCH, 'UniformOutput', false);
         try
             gotFrame = false;
             order = [activeWifiUrlIdx, setdiff(1:numel(WIFI_URLS), activeWifiUrlIdx)];
@@ -499,33 +545,39 @@ start(tmr);
                 catch
                     continue;
                 end
+                adc = [];
                 if isstruct(resp)
-                    if all(isfield(resp, {'c0','c1','c2'}))
-                        adc = [double(resp.c0); double(resp.c1); double(resp.c2)];
-                        activeWifiUrlIdx = u;
-                        gotFrame = true;
-                        break;
+                    if all(isfield(resp, reqFields))
+                        adc = zeros(NCH, 1);
+                        for ii = 1:NCH
+                            adc(ii) = double(resp.(reqFields{ii}));
+                        end
                     end
                 elseif ischar(resp) || isstring(resp)
-                    s = jsondecode(char(resp));
-                    if all(isfield(s, {'c0','c1','c2'}))
-                        adc = [double(s.c0); double(s.c1); double(s.c2)];
-                        activeWifiUrlIdx = u;
-                        gotFrame = true;
-                        break;
+                    wifiJson = jsondecode(char(resp));
+                    if all(isfield(wifiJson, reqFields))
+                        adc = zeros(NCH, 1);
+                        for ii = 1:NCH
+                            adc(ii) = double(wifiJson.(reqFields{ii}));
+                        end
                     end
+                end
+                if ~isempty(adc)
+                    activeWifiUrlIdx = u;
+                    gotFrame = true;
+                    break;
                 end
             end
             if ~gotFrame
                 return;
             end
 
-            if SERIAL_INVERT_ADC
+            if WIFI_INVERT_ADC
                 level = ADC_IN_MAX_WIFI - adc;
             else
                 level = adc;
             end
-            raw = level * (YMAX / ADC_IN_MAX_WIFI);
+            raw = level * (YMAX / ADC_IN_MAX_WIFI) * WIFI_DISPLAY_GAIN;
             raw = max(YMIN, min(YMAX, raw));
             lastWifiRaw = raw;
         catch
