@@ -18,11 +18,11 @@ This folder holds **work-in-progress** versions of the GUI and ESP32 firmware. T
 
 Add a new table row (`<tr>…</tr>`) when you land a batch of weekday changes: copy the previous row, then edit the **Week & dates** and **Highlights** cells.
 
-<!-- Two columns: GitHub squeezes 3 narrow cols and wraps ISO dates mid-string; left col ~26% fixed via colgroup. -->
+<!-- Two columns: left col width via colgroup (tune first % if GitHub layout shifts). -->
 <table width="100%">
 <colgroup>
-  <col width="50%">
-  <col width="50%">
+  <col width="55%">
+  <col width="45%">
 </colgroup>
 <thead>
 <tr>
