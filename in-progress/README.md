@@ -21,8 +21,8 @@ Add a new table row (`<tr>…</tr>`) when you land a batch of weekday changes: c
 <!-- Two columns: GitHub squeezes 3 narrow cols and wraps ISO dates mid-string; left col ~26% fixed via colgroup. -->
 <table width="100%">
 <colgroup>
-  <col width="26%">
-  <col width="74%">
+  <col width="50%">
+  <col width="50%">
 </colgroup>
 <thead>
 <tr>
