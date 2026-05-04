@@ -2,7 +2,7 @@
   ESP32 WiFi + MUX server
   - Tries STA (join existing WiFi) first
   - Falls back to SoftAP (ESP32 creates its own network)
-  - Hosts /status, /c0-c3 and /mux-all JSON endpoints
+  - Hosts /status, /c1-c4, /c1-c5, and /mux-all JSON endpoints
   - Hosts a live dashboard at /
 */
 
@@ -71,7 +71,8 @@ void handleRoot() {
   <div class="card">
     Endpoints:
     <a href="/status" target="_blank">/status</a>,
-    <a href="/c0-c3" target="_blank">/c0-c3</a>,
+    <a href="/c1-c4" target="_blank">/c1-c4</a>,
+    <a href="/c1-c5" target="_blank">/c1-c5</a>,
     <a href="/mux-all" target="_blank">/mux-all</a>
   </div>
   <script>
@@ -159,18 +160,33 @@ int readMuxChannel(int channel) {
   return analogRead(MUX_SIG_PIN);
 }
 
-void handleC0ToC3() {
-  int c0 = readMuxChannel(0);
-  int c1 = readMuxChannel(1);
-  int c2 = readMuxChannel(2);
-  int c3 = readMuxChannel(3);
+void handleC1ToC4() {
+  int v1 = readMuxChannel(1);
+  int v2 = readMuxChannel(2);
+  int v3 = readMuxChannel(3);
+  int v4 = readMuxChannel(4);
 
   char payload[96];
   snprintf(
     payload,
     sizeof(payload),
-    "{\"c0\":%d,\"c1\":%d,\"c2\":%d,\"c3\":%d}",
-    c0, c1, c2, c3
+    "{\"c1\":%d,\"c2\":%d,\"c3\":%d,\"c4\":%d}",
+    v1, v2, v3, v4
+  );
+  server.send(200, "application/json", payload);
+}
+
+void handleC1ToC5() {
+  int v[5];
+  for (int i = 0; i < 5; i++) {
+    v[i] = readMuxChannel(i + 1);
+  }
+  char payload[120];
+  snprintf(
+    payload,
+    sizeof(payload),
+    "{\"c1\":%d,\"c2\":%d,\"c3\":%d,\"c4\":%d,\"c5\":%d}",
+    v[0], v[1], v[2], v[3], v[4]
   );
   server.send(200, "application/json", payload);
 }
@@ -271,8 +287,10 @@ void setup() {
 
   server.on("/", handleRoot);
   server.on("/status", HTTP_GET, handleStatus);
-  server.on("/c0-c3", HTTP_GET, handleC0ToC3);
-  server.on("/c0-c3/", HTTP_GET, handleC0ToC3);
+  server.on("/c1-c4", HTTP_GET, handleC1ToC4);
+  server.on("/c1-c4/", HTTP_GET, handleC1ToC4);
+  server.on("/c1-c5", HTTP_GET, handleC1ToC5);
+  server.on("/c1-c5/", HTTP_GET, handleC1ToC5);
   server.on("/mux-all", HTTP_GET, handleMuxAll);
   server.on("/mux-all/", HTTP_GET, handleMuxAll);
   server.begin();
@@ -287,7 +305,7 @@ void setup() {
     Serial.println("/status");
     Serial.print("MUX quick JSON: http://");
     Serial.print(activeIP());
-    Serial.println("/c0-c3");
+    Serial.println("/c1-c5");
   } else {
     Serial.println("HTTP server started, but no network is active.");
     Serial.println("Check STA credentials and AP configuration.");

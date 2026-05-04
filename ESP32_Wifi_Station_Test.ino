@@ -2,7 +2,7 @@
   ESP32 WiFi + MUX server
   - Tries STA (join existing WiFi) first
   - Falls back to SoftAP (ESP32 creates its own network)
-  - Hosts /status, /c0-c3 and /mux-all JSON endpoints
+  - Hosts /status, /c1-c4, /c1-c5, and /mux-all JSON endpoints
   - Hosts a live dashboard at /
 */
 
@@ -72,7 +72,8 @@ void handleRoot() {
   <div class="card">
     Endpoints:
     <a href="/status" target="_blank">/status</a>,
-    <a href="/c0-c3" target="_blank">/c0-c3</a>,
+    <a href="/c0-c3" target="_blank">/c0-c3</a> (legacy),
+    <a href="/c1-c5" target="_blank">/c1-c5</a> (mLab),
     <a href="/mux-all" target="_blank">/mux-all</a>
   </div>
   <script>
@@ -176,6 +177,22 @@ void handleC0ToC3() {
   server.send(200, "application/json", payload);
 }
 
+// mLab: mux channels 1..5 -> JSON c1..c5 (same numbering as P90ArduinoMux.ino)
+void handleC1ToC5() {
+  int v[5];
+  for (int i = 0; i < 5; i++) {
+    v[i] = readMuxChannel(i + 1);
+  }
+  char payload[120];
+  snprintf(
+    payload,
+    sizeof(payload),
+    "{\"c1\":%d,\"c2\":%d,\"c3\":%d,\"c4\":%d,\"c5\":%d}",
+    v[0], v[1], v[2], v[3], v[4]
+  );
+  server.send(200, "application/json", payload);
+}
+
 void handleMuxAll() {
   String payload = "{";
   for (int i = 0; i < 16; i++) {
@@ -274,6 +291,8 @@ void setup() {
   server.on("/status", HTTP_GET, handleStatus);
   server.on("/c0-c3", HTTP_GET, handleC0ToC3);
   server.on("/c0-c3/", HTTP_GET, handleC0ToC3);
+  server.on("/c1-c5", HTTP_GET, handleC1ToC5);
+  server.on("/c1-c5/", HTTP_GET, handleC1ToC5);
   server.on("/mux-all", HTTP_GET, handleMuxAll);
   server.on("/mux-all/", HTTP_GET, handleMuxAll);
   server.begin();
@@ -288,7 +307,7 @@ void setup() {
     Serial.println("/status");
     Serial.print("MUX quick JSON: http://");
     Serial.print(activeIP());
-    Serial.println("/c0-c3");
+    Serial.println("/c1-c5");
   } else {
     Serial.println("HTTP server started, but no network is active.");
     Serial.println("Check STA credentials and AP configuration.");

@@ -1,4 +1,4 @@
-// ESP32 WiFi AP + HTTP server for MUX C0-C3
+// ESP32 WiFi AP + HTTP server for MUX ch 1–5 (JSON c1–c5; legacy /c1-c4 unchanged)
 #include <WiFi.h>
 #include <WebServer.h>
 
@@ -216,13 +216,14 @@ void select_mux_pin(int i)
   }
 }
 
-String readC0ToC3Json()
+String readC1ToC4Json()
 {
   int values[4];
 
   for (int i = 0; i < 4; i++) {
-    select_mux_pin(i);        // select C0..C3
-    delayMicroseconds(100);   // settle after switching channel
+    int ch = i + 1;
+    select_mux_pin(ch);
+    delayMicroseconds(100);
     values[i] = analogRead(MUX_SIG_PIN);
   }
 
@@ -230,20 +231,48 @@ String readC0ToC3Json()
   snprintf(
     payload,
     sizeof(payload),
-    "{\"c0\":%d,\"c1\":%d,\"c2\":%d,\"c3\":%d}",
+    "{\"c1\":%d,\"c2\":%d,\"c3\":%d,\"c4\":%d}",
     values[0], values[1], values[2], values[3]
+  );
+  return String(payload);
+}
+
+// Five FSR / mux channels (ch 1..5) for mLab
+String readC1ToC5Json()
+{
+  const int N = 5;
+  int values[5];
+
+  for (int i = 0; i < N; i++) {
+    int ch = i + 1;
+    select_mux_pin(ch);
+    delayMicroseconds(100);
+    values[i] = analogRead(MUX_SIG_PIN);
+  }
+
+  char payload[120];
+  snprintf(
+    payload,
+    sizeof(payload),
+    "{\"c1\":%d,\"c2\":%d,\"c3\":%d,\"c4\":%d,\"c5\":%d}",
+    values[0], values[1], values[2], values[3], values[4]
   );
   return String(payload);
 }
 
 void handleRoot()
 {
-  server.send(200, "text/plain", "P90 MUX AP online. Use /c0-c3 for JSON.");
+  server.send(200, "text/plain", "P90 MUX AP online. Use /c1-c5 for JSON (mux ch 1–5) or /c1-c4 (legacy).");
 }
 
-void handleC0ToC3()
+void handleC1ToC4()
 {
-  server.send(200, "application/json", readC0ToC3Json());
+  server.send(200, "application/json", readC1ToC4Json());
+}
+
+void handleC1ToC5()
+{
+  server.send(200, "application/json", readC1ToC5Json());
 }
 
 void handleWifiStatus()
@@ -279,7 +308,8 @@ void setup()
   apStarted = WiFi.softAP(AP_SSID, AP_PASSWORD);
 
   server.on("/", handleRoot);
-  server.on("/c0-c3", HTTP_GET, handleC0ToC3);
+  server.on("/c1-c4", HTTP_GET, handleC1ToC4);
+  server.on("/c1-c5", HTTP_GET, handleC1ToC5);
   server.on("/wifi-status", HTTP_GET, handleWifiStatus);
   server.begin();
 
@@ -290,7 +320,7 @@ void setup()
     Serial.println(AP_SSID);
     Serial.print("AP IP: ");
     Serial.println(WiFi.softAPIP());
-    Serial.println("Open http://192.168.4.1/wifi-status to verify station connection.");
+    Serial.println("Open http://192.168.4.1/wifi-status or /c1-c5 to verify.");
   } else {
     digitalWrite(STATUS_LED_PIN, LOW);
     Serial.println("WiFi AP FAILED TO START");
