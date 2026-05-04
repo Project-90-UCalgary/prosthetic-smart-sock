@@ -16,21 +16,28 @@ This folder holds **work-in-progress** versions of the GUI and ESP32 firmware. T
 
 ## Weekly update log (in-progress)
 
-Add a new row when you land a batch of weekday changes in this folder.
+Add a new table row (`<tr>…</tr>`) when you land a batch of weekday changes: copy the previous row, then edit the **Week & dates** and **Highlights** cells.
 
-<!-- HTML table uses full README width so the Highlights column wraps less narrowly than GFM pipe tables. -->
+<!-- Two columns: GitHub squeezes 3 narrow cols and wraps ISO dates mid-string; left col ~26% fixed via colgroup. -->
 <table width="100%">
+<colgroup>
+  <col width="26%">
+  <col width="74%">
+</colgroup>
 <thead>
 <tr>
-<th align="left">Week of (Mon)</th>
-<th align="left">Pushed / noted (date)</th>
+<th align="left">Week &amp; dates</th>
 <th align="left">Highlights</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td valign="top">2026-05-04</td>
-<td valign="top">2026-05-04</td>
+<td valign="top">
+
+<strong>Week (Mon)</strong><br><code>2026-05-04</code><br><br>
+<strong>Noted</strong><br><code>2026-05-04</code>
+
+</td>
 <td valign="top">
 
 5 FSR channels; WiFi/JSON `c1`–`c5` + matching firmware; display 0–100; `turbo` colormap + linear heat scaling; 30 s history with **wall-clock** time axis; non-overlapping controls + more random-mode diversity; `in-progress/` split from mainline on GitHub.
