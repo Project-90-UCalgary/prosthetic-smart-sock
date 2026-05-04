@@ -17,7 +17,7 @@ NCH = 5; % first five mux channels (JSON / WiFi c1–c5)
 LABELS = compose("FSR%d", 1:NCH);
 LABELS_SERIAL = compose("M%d", 0:NCH-1);
 LABELS_WIFI = compose("S%d", 1:NCH); % WiFi: map to JSON c1..cN (mux ch 1–N)
-LABELS_3D = compose("S%d", 1:NCH);
+LABELS_3D = compose("FSR%d", 1:NCH);
 
 SAMPLE_HZ  = 50;
 DT         = 1 / SAMPLE_HZ;
