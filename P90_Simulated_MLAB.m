@@ -24,7 +24,7 @@ WINDOW_SEC = 10;
 maxlen     = round(SAMPLE_HZ * WINDOW_SEC);
 
 YMIN = 0;
-YMAX = 100;            % display 0..100; channel sliders use Min..Max = 0..YMAX
+YMAX = 50;             % display 0..50 (higher = more pressure after optional invert)
 ADC_IN_MAX_SERIAL = 1023;  % legacy Arduino serial stream scale
 ADC_IN_MAX_WIFI   = 4095;  % ESP32 ADC scale over WiFi endpoint
 % Circuit wiring: more mechanical pressure -> lower ADC (typical FSR / divider setup).
@@ -53,7 +53,7 @@ x_hist = linspace(-WINDOW_SEC, 0, maxlen);
 mode = 1;
 
 % Slider values storage (0..YMAX)
-sliderVals = 50 * ones(NCH,1);
+sliderVals = 25 * ones(NCH,1);
 
 % Serial: 16 × sprintf("%6d", A0) -> 96 chars per line (no A1 field)
 serialHandle = [];           % serialport object, empty when closed
@@ -85,14 +85,14 @@ Z = ZZ;
 
 % Three mux sites (c0–c2) on the limb — same Z near the tip (low on cup), spread by angle
 z_tip = 0.30 * H; % paraboloid band near apex; all three share this height
-fsr_th = zeros(NCH, 1);
-fsr_th(:) = (0:2).' * (2*pi/3) + 0.12;
-z_fsr = zeros(NCH, 1);
-z_fsr(:) = z_tip;
-r_fsr = limbRvec(z_fsr, H, shapeK, Rmax, R_cyl, h_cone);
-fsr_x = r_fsr .* cos(fsr_th);
-fsr_y = r_fsr .* sin(fsr_th);
-fsr_z = z_fsr;
+s_th = zeros(NCH, 1);
+s_th(:) = (0:2).' * (2*pi/3) + 0.12;
+z_s = zeros(NCH, 1);
+z_s(:) = z_tip;
+r_s = limbRvec(z_s, H, shapeK, Rmax, R_cyl, h_cone);
+s_x = r_s .* cos(s_th);
+s_y = r_s .* sin(s_th);
+s_z = z_s;
 
 %% ================= FIGURE + LAYOUT =================
 fig = figure('Color','w', 'Name','Paraboloid Prosthetic Telemetry', ...
@@ -110,7 +110,7 @@ b = bar(axBar, 1:NCH, zeros(1,NCH));
 ylim(axBar, [YMIN YMAX]);
 xticks(axBar, 1:NCH);
 xticklabels(axBar, LABELS);
-ylabel(axBar, 'Level (0–100)');
+ylabel(axBar, 'Level (0–50)');
 title(axBar, 'Live Values');
 grid(axBar, 'on');
 
@@ -125,7 +125,7 @@ hold(axHist,'off');
 xlim(axHist, [-WINDOW_SEC 0]);
 ylim(axHist, [YMIN YMAX]);
 xlabel(axHist, 'Time (s) [0 = now]');
-ylabel(axHist, 'Level (0–100)');
+ylabel(axHist, 'Level (0–50)');
 title(axHist, sprintf('History (last %ds)', WINDOW_SEC));
 legend(axHist, LABELS, 'Location','northwest');
 grid(axHist, 'on');
@@ -145,9 +145,9 @@ cb = colorbar(ax3D);
 cb.Label.String = 'Intensity (0..100)';
 
 hold(ax3D,'on');
-hPts = scatter3(ax3D, fsr_x, fsr_y, fsr_z, 110, zeros(NCH,1), 'filled', 'MarkerEdgeColor','k');
+hPts = scatter3(ax3D, s_x, s_y, s_z, 110, zeros(NCH,1), 'filled', 'MarkerEdgeColor','k');
 for i=1:NCH
-    text(ax3D, fsr_x(i)*1.06, fsr_y(i)*1.06, fsr_z(i), LABELS_3D(i), ...
+    text(ax3D, s_x(i)*1.06, s_y(i)*1.06, s_z(i), LABELS_3D(i), ...
         'FontWeight','bold','Color','w');
 end
 hold(ax3D,'off');
@@ -327,9 +327,9 @@ start(tmr);
 
             heat = zeros(size(Z));
             for k = 1:NCH
-                dx = X - fsr_x(k);
-                dy_ = Y - fsr_y(k);
-                dz = Z - fsr_z(k);
+                dx = X - s_x(k);
+                dy_ = Y - s_y(k);
+                dz = Z - s_z(k);
                 d = sqrt(dx.^2 + dy_.^2 + dz.^2);
                 heat = heat + intensityHeat(k) .* exp(-(d.^2) / (2*sigma^2));
             end
