@@ -57,17 +57,21 @@ If using SoftAP fallback, connect your computer to the ESP32 AP SSID first, then
 
 ## 5) Run MATLAB Integration
 
-Use one of the MATLAB scripts in this repo:
+Primary script: **`MATLABWiFiV1.m`**
 
-- `MATLABWiFiV1.m` (newer script)
-- `P90_Simulated_MLAB.m` (existing simulation script)
+- 3D model: CAD assembly STL (`models/leg.stl`, copied from your export)
+- **16 sensors** (mux c0–c15) placed randomly on the **calf sock patch** (mesh heuristic)
+- Reshuffle sites: change `SENSOR_SEED` near the top of the script
+- Replace mesh: overwrite `models/leg.stl` or set `LIMB_STL` in the script
+- Loader: `loadProstheticStlMesh.m`
+
+Legacy: `buildProstheticLimbMesh.m` (procedural fallback), `P90_Simulated_MLAB.m` (older GUI)
 
 Typical workflow:
 
-1. Open MATLAB.
-2. Set the ESP32 IP/endpoint URL in the script where required.
-3. Run the script.
-4. Confirm sensor values stream/update as expected.
+1. Open MATLAB and run `MATLABWiFiV1`.
+2. Set `WIFI_URL` if using WiFi mode (ESP32 IP + `/mux-all`).
+3. Confirm the 3D view shows 16 labeled points on the calf patch and live values update.
 
 ## 6) Security and Good Practices
 
