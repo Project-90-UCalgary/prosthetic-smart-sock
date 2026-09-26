@@ -21,6 +21,7 @@ This public repository contains project documentation, approved figures, posters
 - [System overview](docs/system-overview.md)
 - [Project status](docs/project-status.md)
 - [Publication notes](docs/publication-notes.md)
+- [AB BME abstract](docs/2026-ab-bme-prosthetic-sensor-sock-abstract.pdf)
 - [Posters](posters/README.md)
 - [Presentations](presentations/README.md)
 
